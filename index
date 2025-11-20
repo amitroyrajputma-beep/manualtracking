@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Multi-Sheet Viewer</title>
+<title>Multi-Sheet Google Viewer</title>
 
-<!-- Tailwind CSS CDN -->
+<!-- Tailwind CSS -->
 <script src="https://cdn.tailwindcss.com"></script>
 
 <style>
@@ -30,12 +30,12 @@
 <div class="flex items-center justify-between mb-4">
   <h1 class="text-2xl font-bold">Google Sheet Viewer</h1>
   <button onclick="toggleDarkMode()" class="px-3 py-1 bg-gray-800 text-white rounded">
-    🌙 Toggle Dark Mode
+    🌙 Dark Mode
   </button>
 </div>
 
 <!-- SHEET TABS -->
-<div id="tabs" class="flex space-x-2 mb-4"></div>
+<div id="tabs" class="flex flex-wrap space-x-2 mb-4"></div>
 
 <!-- SEARCH BAR -->
 <input id="searchBar" 
@@ -47,27 +47,28 @@
 <!-- FILTERS -->
 <div id="filters" class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4"></div>
 
-<!-- TABLE -->
+<!-- TABLE OUTPUT -->
 <div id="loader" class="text-lg">Loading…</div>
 <div id="table-container"></div>
 
 <script>
 /* ========= CONFIG ========= */
 const docId = "1cuRsSTamB9qVay6iUTzH-lM-jRAEa6HA56DPS3WqaPQ";
+
 const sheets = [
+  { name: "Main Sheet", gid: "1955112487" },    // ← Your original sheet
   { name: "Sheet 1", gid: "510484958" },
   { name: "Sheet 2", gid: "1024028874" },
   { name: "Sheet 3", gid: "1020552709" },
   { name: "Sheet 4", gid: "1489763838" }
 ];
 
-/* ========= GLOBAL VARS ========= */
 let allData = [];
 let headers = [];
 let sortDirection = {};
 let activeSheet = sheets[0].gid;
 
-/* ========= INITIALIZE ========= */
+/* ========= INIT ========= */
 createTabs();
 loadSheet(activeSheet);
 
@@ -76,21 +77,24 @@ function toggleDarkMode() {
   document.body.classList.toggle("dark-mode");
 }
 
-/* ========= TABS UI ========= */
+/* ========= CREATE TABS ========= */
 function createTabs() {
-  const tabContainer = document.getElementById("tabs");
-  tabContainer.innerHTML = "";
+  const tabBar = document.getElementById("tabs");
+  tabBar.innerHTML = "";
 
   sheets.forEach(s => {
     const btn = document.createElement("button");
     btn.textContent = s.name;
+
     btn.className =
-      "px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700";
+      "px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 mb-2";
+
     btn.onclick = () => {
       activeSheet = s.gid;
       loadSheet(s.gid);
     };
-    tabContainer.appendChild(btn);
+
+    tabBar.appendChild(btn);
   });
 }
 
@@ -99,7 +103,8 @@ async function loadSheet(gid) {
   document.getElementById("loader").style.display = "block";
   document.getElementById("table-container").innerHTML = "";
 
-  const csvUrl = `https://docs.google.com/spreadsheets/d/${docId}/export?format=csv&gid=${gid}`;
+  const csvUrl =
+    `https://docs.google.com/spreadsheets/d/${docId}/export?format=csv&gid=${gid}`;
 
   const res = await fetch(csvUrl);
   const text = await res.text();
@@ -119,43 +124,40 @@ function createFilters() {
   const container = document.getElementById("filters");
   container.innerHTML = "";
 
-  headers.forEach((h, colIndex) => {
+  headers.forEach((h, columnIndex) => {
     const select = document.createElement("select");
-    select.dataset.col = colIndex;
+    select.dataset.col = columnIndex;
     select.onchange = applyFilters;
     select.className = "p-2 border rounded w-full bg-white";
 
-    const uniqueValues = [...new Set(allData.map(r => r[colIndex]))].sort();
+    const values = [...new Set(allData.map(r => r[columnIndex]))].sort();
 
     select.innerHTML =
       `<option value="">Filter ${h}</option>` +
-      uniqueValues
-        .map(v => `<option value="${v}">${v}</option>`)
-        .join("");
+      values.map(v => `<option value="${v}">${v}</option>`).join("");
 
     container.appendChild(select);
   });
 }
 
-/* ========= SEARCH + FILTER ========= */
+/* ========= APPLY SEARCH + FILTER ========= */
 function applyFilters() {
-  const searchText = document
-    .getElementById("searchBar")
-    .value.toLowerCase();
+  const searchText =
+    document.getElementById("searchBar").value.toLowerCase();
 
   const selects = document.querySelectorAll("#filters select");
 
   const filtered = allData.filter(row => {
-    const matchesSearch = row.some(c =>
-      c.toLowerCase().includes(searchText)
+    const textMatch = row.some(cell =>
+      cell.toLowerCase().includes(searchText)
     );
 
-    const matchesFilters = [...selects].every(sel => {
+    const filterMatch = [...selects].every(sel => {
       if (!sel.value) return true;
       return row[sel.dataset.col] === sel.value;
     });
 
-    return matchesSearch && matchesFilters;
+    return textMatch && filterMatch;
   });
 
   renderTable(filtered);
@@ -166,48 +168,44 @@ function renderTable(data) {
   const container = document.getElementById("table-container");
   container.innerHTML = "";
 
-  const table =
+  let html =
     `<table class="min-w-full border bg-white dark:bg-gray-800">
       <thead>
         <tr>
           ${headers
             .map(
               (h, i) =>
-                `<th onclick="sortColumn(${i})" 
-                      class="px-3 py-2 border cursor-pointer">
-                      ${h} ⬍</th>`
+                `<th onclick="sortColumn(${i})"
+                     class='px-3 py-2 border cursor-pointer'>
+                     ${h} ⬍
+                 </th>`
             )
             .join("")}
         </tr>
       </thead>
-      <tbody>
-        ${data
-          .map(
-            row => `
-            <tr>
-              ${row
-                .map(
-                  c =>
-                    `<td class="border px-2 py-1 dark:border-gray-700">${c}</td>`
-                )
-                .join("")}
-            </tr>`
-          )
-          .join("")}
-      </tbody>
-    </table>`;
+      <tbody>`;
 
-  container.innerHTML = table;
+  data.forEach(row => {
+    html += "<tr>";
+    row.forEach(cell => {
+      html += `<td class="border px-2 py-1">${cell}</td>`;
+    });
+    html += "</tr>";
+  });
+
+  html += "</tbody></table>";
+
+  container.innerHTML = html;
 }
 
-/* ========= SORTING ========= */
-function sortColumn(index) {
-  sortDirection[index] = !sortDirection[index];
+/* ========= SORT COLUMN ========= */
+function sortColumn(i) {
+  sortDirection[i] = !sortDirection[i];
 
   const sorted = [...allData].sort((a, b) =>
-    sortDirection[index]
-      ? a[index].localeCompare(b[index])
-      : b[index].localeCompare(a[index])
+    sortDirection[i]
+      ? a[i].localeCompare(b[i])
+      : b[i].localeCompare(a[i])
   );
 
   renderTable(sorted);
