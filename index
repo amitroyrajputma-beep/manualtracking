@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-Sheet Viewer</title>
+
+<!-- Tailwind CSS CDN -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<style>
+  .dark-mode {
+    background-color: #0f172a !important;
+    color: #e2e8f0 !important;
+  }
+  th {
+    position: sticky;
+    top: 0;
+    background: #e2e8f0;
+  }
+  .dark-mode th {
+    background: #1e293b !important;
+  }
+</style>
+</head>
+
+<body class="bg-gray-100 text-gray-900 p-4">
+
+<!-- HEADER -->
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold">Google Sheet Viewer</h1>
+  <button onclick="toggleDarkMode()" class="px-3 py-1 bg-gray-800 text-white rounded">
+    🌙 Toggle Dark Mode
+  </button>
+</div>
+
+<!-- SHEET TABS -->
+<div id="tabs" class="flex space-x-2 mb-4"></div>
+
+<!-- SEARCH BAR -->
+<input id="searchBar" 
+       type="text" 
+       placeholder="Search…" 
+       onkeyup="applyFilters()"
+       class="w-full p-2 border rounded mb-4">
+
+<!-- FILTERS -->
+<div id="filters" class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4"></div>
+
+<!-- TABLE -->
+<div id="loader" class="text-lg">Loading…</div>
+<div id="table-container"></div>
+
+<script>
+/* ========= CONFIG ========= */
+const docId = "1cuRsSTamB9qVay6iUTzH-lM-jRAEa6HA56DPS3WqaPQ";
+const sheets = [
+  { name: "Sheet 1", gid: "510484958" },
+  { name: "Sheet 2", gid: "1024028874" },
+  { name: "Sheet 3", gid: "1020552709" },
+  { name: "Sheet 4", gid: "1489763838" }
+];
+
+/* ========= GLOBAL VARS ========= */
+let allData = [];
+let headers = [];
+let sortDirection = {};
+let activeSheet = sheets[0].gid;
+
+/* ========= INITIALIZE ========= */
+createTabs();
+loadSheet(activeSheet);
+
+/* ========= DARK MODE ========= */
+function toggleDarkMode() {
+  document.body.classList.toggle("dark-mode");
+}
+
+/* ========= TABS UI ========= */
+function createTabs() {
+  const tabContainer = document.getElementById("tabs");
+  tabContainer.innerHTML = "";
+
+  sheets.forEach(s => {
+    const btn = document.createElement("button");
+    btn.textContent = s.name;
+    btn.className =
+      "px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700";
+    btn.onclick = () => {
+      activeSheet = s.gid;
+      loadSheet(s.gid);
+    };
+    tabContainer.appendChild(btn);
+  });
+}
+
+/* ========= LOAD SHEET ========= */
+async function loadSheet(gid) {
+  document.getElementById("loader").style.display = "block";
+  document.getElementById("table-container").innerHTML = "";
+
+  const csvUrl = `https://docs.google.com/spreadsheets/d/${docId}/export?format=csv&gid=${gid}`;
+
+  const res = await fetch(csvUrl);
+  const text = await res.text();
+  const rows = text.trim().split("\n").map(r => r.split(","));
+
+  headers = rows[0];
+  allData = rows.slice(1);
+
+  createFilters();
+  renderTable(allData);
+
+  document.getElementById("loader").style.display = "none";
+}
+
+/* ========= FILTERS ========= */
+function createFilters() {
+  const container = document.getElementById("filters");
+  container.innerHTML = "";
+
+  headers.forEach((h, colIndex) => {
+    const select = document.createElement("select");
+    select.dataset.col = colIndex;
+    select.onchange = applyFilters;
+    select.className = "p-2 border rounded w-full bg-white";
+
+    const uniqueValues = [...new Set(allData.map(r => r[colIndex]))].sort();
+
+    select.innerHTML =
+      `<option value="">Filter ${h}</option>` +
+      uniqueValues
+        .map(v => `<option value="${v}">${v}</option>`)
+        .join("");
+
+    container.appendChild(select);
+  });
+}
+
+/* ========= SEARCH + FILTER ========= */
+function applyFilters() {
+  const searchText = document
+    .getElementById("searchBar")
+    .value.toLowerCase();
+
+  const selects = document.querySelectorAll("#filters select");
+
+  const filtered = allData.filter(row => {
+    const matchesSearch = row.some(c =>
+      c.toLowerCase().includes(searchText)
+    );
+
+    const matchesFilters = [...selects].every(sel => {
+      if (!sel.value) return true;
+      return row[sel.dataset.col] === sel.value;
+    });
+
+    return matchesSearch && matchesFilters;
+  });
+
+  renderTable(filtered);
+}
+
+/* ========= RENDER TABLE ========= */
+function renderTable(data) {
+  const container = document.getElementById("table-container");
+  container.innerHTML = "";
+
+  const table =
+    `<table class="min-w-full border bg-white dark:bg-gray-800">
+      <thead>
+        <tr>
+          ${headers
+            .map(
+              (h, i) =>
+                `<th onclick="sortColumn(${i})" 
+                      class="px-3 py-2 border cursor-pointer">
+                      ${h} ⬍</th>`
+            )
+            .join("")}
+        </tr>
+      </thead>
+      <tbody>
+        ${data
+          .map(
+            row => `
+            <tr>
+              ${row
+                .map(
+                  c =>
+                    `<td class="border px-2 py-1 dark:border-gray-700">${c}</td>`
+                )
+                .join("")}
+            </tr>`
+          )
+          .join("")}
+      </tbody>
+    </table>`;
+
+  container.innerHTML = table;
+}
+
+/* ========= SORTING ========= */
+function sortColumn(index) {
+  sortDirection[index] = !sortDirection[index];
+
+  const sorted = [...allData].sort((a, b) =>
+    sortDirection[index]
+      ? a[index].localeCompare(b[index])
+      : b[index].localeCompare(a[index])
+  );
+
+  renderTable(sorted);
+}
+</script>
+
+</body>
+</html>
