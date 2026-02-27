@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Multi-Sheet Google Viewer</title>
 
-<!-- Tailwind CSS -->
 <script src="https://cdn.tailwindcss.com"></script>
 
 <style>
@@ -13,13 +12,33 @@
     background-color: #0f172a !important;
     color: #e2e8f0 !important;
   }
+
   th {
     position: sticky;
     top: 0;
     background: #e2e8f0;
   }
+
   .dark-mode th {
     background: #1e293b !important;
+  }
+
+  .highlight {
+    background-color: #fef08a !important;
+  }
+
+  .dark-mode .highlight {
+    background-color: #92400e !important;
+  }
+
+  /* Mobile compact mode */
+  @media (max-width: 768px) {
+    table {
+      font-size: 12px;
+    }
+    td, th {
+      padding: 4px !important;
+    }
   }
 </style>
 </head>
@@ -27,36 +46,35 @@
 <body class="bg-gray-100 text-gray-900 p-4">
 
 <!-- HEADER -->
-<div class="flex items-center justify-between mb-4">
-  <h1 class="text-2xl font-bold">Google Sheet Viewer</h1>
-  <button onclick="toggleDarkMode()" class="px-3 py-1 bg-gray-800 text-white rounded">
-    🌙 Dark Mode
-  </button>
+<div class="flex flex-col md:flex-row md:items-center md:justify-between mb-4 gap-2">
+  <h1 class="text-xl md:text-2xl font-bold">Google Sheet Viewer</h1>
+
+  <div class="flex gap-2">
+    <input id="searchBar" 
+           type="text" 
+           placeholder="Type exact value & press Enter"
+           class="p-2 border rounded w-full md:w-64">
+    
+    <button onclick="toggleDarkMode()" 
+            class="px-3 py-1 bg-gray-800 text-white rounded">
+      🌙
+    </button>
+  </div>
 </div>
 
 <!-- SHEET TABS -->
-<div id="tabs" class="flex flex-wrap space-x-2 mb-4"></div>
-
-<!-- SEARCH BAR -->
-<input id="searchBar" 
-       type="text" 
-       placeholder="Search…" 
-       onkeyup="applyFilters()"
-       class="w-full p-2 border rounded mb-4">
-
-<!-- FILTERS -->
-<div id="filters" class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4"></div>
+<div id="tabs" class="flex flex-wrap gap-2 mb-4"></div>
 
 <!-- TABLE OUTPUT -->
 <div id="loader" class="text-lg">Loading…</div>
-<div id="table-container"></div>
+<div id="table-container" class="overflow-auto"></div>
 
 <script>
 /* ========= CONFIG ========= */
 const docId = "1cuRsSTamB9qVay6iUTzH-lM-jRAEa6HA56DPS3WqaPQ";
 
 const sheets = [
-  { name: "Main Sheet", gid: "1955112487" },    // ← Your original sheet
+  { name: "Main Sheet", gid: "1955112487" },
   { name: "Sheet 1", gid: "510484958" },
   { name: "Sheet 2", gid: "1024028874" },
   { name: "Sheet 3", gid: "1020552709" },
@@ -72,6 +90,13 @@ let activeSheet = sheets[0].gid;
 createTabs();
 loadSheet(activeSheet);
 
+/* ========= ENTER KEY SEARCH ========= */
+document.getElementById("searchBar").addEventListener("keydown", function(e) {
+  if (e.key === "Enter") {
+    applySearch();
+  }
+});
+
 /* ========= DARK MODE ========= */
 function toggleDarkMode() {
   document.body.classList.toggle("dark-mode");
@@ -85,17 +110,52 @@ function createTabs() {
   sheets.forEach(s => {
     const btn = document.createElement("button");
     btn.textContent = s.name;
-
     btn.className =
-      "px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 mb-2";
+      "px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700";
 
     btn.onclick = () => {
       activeSheet = s.gid;
+      document.getElementById("searchBar").value = "";
       loadSheet(s.gid);
     };
 
     tabBar.appendChild(btn);
   });
+}
+
+/* ========= FAST CSV PARSER ========= */
+function parseCSV(text) {
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const nextChar = text[i + 1];
+
+    if (char === '"' && inQuotes && nextChar === '"') {
+      cell += '"';
+      i++;
+    } else if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === ',' && !inQuotes) {
+      row.push(cell);
+      cell = "";
+    } else if (char === '\n' && !inQuotes) {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+    } else {
+      cell += char;
+    }
+  }
+
+  if (cell) row.push(cell);
+  if (row.length) rows.push(row);
+
+  return rows;
 }
 
 /* ========= LOAD SHEET ========= */
@@ -108,63 +168,35 @@ async function loadSheet(gid) {
 
   const res = await fetch(csvUrl);
   const text = await res.text();
-  const rows = text.trim().split("\n").map(r => r.split(","));
+
+  const rows = parseCSV(text);
 
   headers = rows[0];
   allData = rows.slice(1);
 
-  createFilters();
   renderTable(allData);
-
   document.getElementById("loader").style.display = "none";
 }
 
-/* ========= FILTERS ========= */
-function createFilters() {
-  const container = document.getElementById("filters");
-  container.innerHTML = "";
-
-  headers.forEach((h, columnIndex) => {
-    const select = document.createElement("select");
-    select.dataset.col = columnIndex;
-    select.onchange = applyFilters;
-    select.className = "p-2 border rounded w-full bg-white";
-
-    const values = [...new Set(allData.map(r => r[columnIndex]))].sort();
-
-    select.innerHTML =
-      `<option value="">Filter ${h}</option>` +
-      values.map(v => `<option value="${v}">${v}</option>`).join("");
-
-    container.appendChild(select);
-  });
-}
-
-/* ========= APPLY SEARCH + FILTER ========= */
-function applyFilters() {
+/* ========= EXACT SEARCH ========= */
+function applySearch() {
   const searchText =
-    document.getElementById("searchBar").value.toLowerCase();
+    document.getElementById("searchBar").value.trim().toLowerCase();
 
-  const selects = document.querySelectorAll("#filters select");
+  if (!searchText) {
+    renderTable(allData);
+    return;
+  }
 
-  const filtered = allData.filter(row => {
-    const textMatch = row.some(cell =>
-      cell.toLowerCase().includes(searchText)
-    );
+  const filtered = allData.filter(row =>
+    row.some(cell => cell.toLowerCase() === searchText)
+  );
 
-    const filterMatch = [...selects].every(sel => {
-      if (!sel.value) return true;
-      return row[sel.dataset.col] === sel.value;
-    });
-
-    return textMatch && filterMatch;
-  });
-
-  renderTable(filtered);
+  renderTable(filtered, searchText);
 }
 
 /* ========= RENDER TABLE ========= */
-function renderTable(data) {
+function renderTable(data, highlightValue = null) {
   const container = document.getElementById("table-container");
   container.innerHTML = "";
 
@@ -176,7 +208,7 @@ function renderTable(data) {
             .map(
               (h, i) =>
                 `<th onclick="sortColumn(${i})"
-                     class='px-3 py-2 border cursor-pointer'>
+                     class='px-2 py-1 border cursor-pointer text-xs md:text-sm'>
                      ${h} ⬍
                  </th>`
             )
@@ -186,10 +218,16 @@ function renderTable(data) {
       <tbody>`;
 
   data.forEach(row => {
-    html += "<tr>";
+    const isMatch =
+      highlightValue &&
+      row.some(cell => cell.toLowerCase() === highlightValue);
+
+    html += `<tr class="${isMatch ? "highlight" : ""}">`;
+
     row.forEach(cell => {
-      html += `<td class="border px-2 py-1">${cell}</td>`;
+      html += `<td class="border px-2 py-1 text-xs md:text-sm">${cell}</td>`;
     });
+
     html += "</tr>";
   });
 
